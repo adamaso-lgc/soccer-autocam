@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+outputs/
+data/
+*.mp4
+*.mkv
+*.avi
+*.pt
+*.onnx
+*.engine
+runs/
+.env
