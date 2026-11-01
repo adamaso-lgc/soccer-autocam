@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo sem câmara nem YOLO: gera um jogo sintético e corre o pipeline com o detetor "demo".
+# Demo without a camera or YOLO: generate a synthetic match and run the "demo" detector.
 set -euo pipefail
 mkdir -p outputs
 
@@ -8,5 +8,5 @@ python -m autocam --source outputs/demo.mp4 --output outputs/demo_out.mp4 \
   --detector demo --debug-video outputs/demo_debug.mp4
 
 echo
-echo "Resultado:  outputs/demo_out.mp4   (o que iria para o YouTube)"
-echo "Overlay:    outputs/demo_debug.mp4 (verde = crop, amarelo = bola, azul = jogadores)"
+echo "Output:     outputs/demo_out.mp4   (virtual-camera feed)"
+echo "Debug view: outputs/demo_debug.mp4 (green = crop, yellow = ball, blue = players)"

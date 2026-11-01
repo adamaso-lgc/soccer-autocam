@@ -1,3 +1,3 @@
-"""soccer-autocam: câmara virtual que segue a bola em jogos de futebol."""
+"""soccer-autocam: a digital camera that follows the ball in soccer matches."""
 
 __version__ = "0.1.0"

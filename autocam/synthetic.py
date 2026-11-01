@@ -1,8 +1,8 @@
-"""Gera um "jogo" sintético (campo visto de cima, bola e 22 jogadores) para testar sem câmara.
+"""Generate a synthetic match (overhead pitch, ball, and 22 players) for camera-free testing.
 
     python -m autocam.synthetic demo.mp4 --seconds 20
 
-Escreve também demo.truth.json com a posição real da bola por frame.
+Also write demo.truth.json with the ground-truth ball position for each frame.
 """
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ import cv2
 import numpy as np
 
 FIELD_BGR = (50, 130, 55)
-LINE_BGR = (195, 225, 195)  # claro, mas abaixo do limiar de "branco" da bola
+LINE_BGR = (195, 225, 195)  # Bright, but below the ball's "white" threshold.
 BALL_BGR = (255, 255, 255)
-TEAM_A = (30, 30, 220)  # vermelho (BGR)
-TEAM_B = (220, 60, 30)  # azul (BGR)
+TEAM_A = (30, 30, 220)  # Red (BGR).
+TEAM_B = (220, 60, 30)  # Blue (BGR).
 
 
 def _formation(w: int, h: int) -> np.ndarray:
@@ -38,7 +38,7 @@ def generate(path: str, width: int = 2560, height: int = 720, seconds: float = 2
     home = _formation(width, height)
     phase = rng.uniform(0, 2 * np.pi, size=(22, 2))
 
-    # trajetória da bola: passes entre jogadores
+    # Ball trajectory: passes between players.
     waypoints: list[tuple[int, np.ndarray]] = []
     t = 0
     cur = int(rng.integers(0, 22))
@@ -51,18 +51,18 @@ def generate(path: str, width: int = 2560, height: int = 720, seconds: float = 2
         for (t0, p0), (t1, p1) in zip(waypoints, waypoints[1:]):
             if t0 <= i < t1:
                 u = (i - t0) / (t1 - t0)
-                u = u * u * (3 - 2 * u)  # ease
+                u = u * u * (3 - 2 * u)  # Ease-in/ease-out interpolation.
                 ball[i] = p0 + (p1 - p0) * u
                 break
 
-    hidden = np.zeros(n, dtype=bool)  # a bola "desaparece" em alguns períodos
+    hidden = np.zeros(n, dtype=bool)  # The ball "disappears" during selected intervals.
     for _ in range(occlusions):
         s = int(rng.uniform(0.15, 0.85) * n)
         hidden[s : s + int(0.8 * fps)] = True
 
     writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
     if not writer.isOpened():
-        raise RuntimeError(f"Não consegui escrever {path}")
+        raise RuntimeError(f"Could not write {path}")
     truth = []
     for i in range(n):
         img = np.full((height, width, 3), FIELD_BGR, dtype=np.uint8)

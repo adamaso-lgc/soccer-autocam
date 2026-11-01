@@ -35,7 +35,7 @@ def test_tracker_follows_then_coasts_then_loses():
         s = t.update([ball_det(500 + 10 * i, 300)], DT)
     assert s.status == "tracked" and s.vel[0] > 100  # ~250 px/s
 
-    # sem deteções: prevê (coasting) e depois perde
+    # With no detections, predict (coast) and then lose the track.
     statuses = []
     for _ in range(60):
         statuses.append(t.update([], DT).status)

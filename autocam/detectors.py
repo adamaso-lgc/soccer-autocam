@@ -1,9 +1,8 @@
-"""Detetores de bola e jogadores.
+"""Ball and player detectors.
 
-* ``YoloDetector``  - detetor real (Ultralytics YOLO), com inferência em tiles
-  opcional para apanhar a bola (poucos pixels em 4K).
-* ``DemoColorDetector`` - detetor clássico por cor, só serve para o vídeo
-  sintético de demonstração/testes. NÃO funciona em jogos reais.
+* ``YoloDetector`` - Ultralytics YOLO detector with optional tiled inference
+  to find small balls in high-resolution frames.
+* ``DemoColorDetector`` - color-based detector for synthetic demo footage only.
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Detection:
-    label: str  # "ball" | "person"
+    label: str  # "ball" or "person".
     x1: float
     y1: float
     x2: float
@@ -29,15 +28,18 @@ class Detection:
 
     @property
     def foot(self) -> tuple[float, float]:
-        """Ponto no chão (centro da base da caixa) - melhor para posição em campo."""
+        """Ground point (center of the bottom edge), useful for pitch position."""
         return ((self.x1 + self.x2) / 2, self.y2)
 
 
 class Detector(Protocol):
     def detect(self, frame: np.ndarray, hint: tuple[float, float] | None = None,
                persons: bool = True) -> list[Detection]:
-        """``hint``: posição provável da bola (procura rápida numa janela). ``persons=False``:
-        o chamador não precisa de jogadores neste frame."""
+        """A hint is the likely ball position for a fast local search.
+
+        If ``persons`` is false, the caller does not need player detections
+        for this frame.
+        """
         ...
 
 
@@ -75,11 +77,11 @@ def _nms(dets: list[Detection], thr: float = 0.3) -> list[Detection]:
 
 
 class YoloDetector:
-    """Wrapper do Ultralytics YOLO.
+    """Wrapper for Ultralytics YOLO.
 
-    ``model`` pode ser um modelo COCO pré-treinado (classe "sports ball") ou o teu
-    modelo afinado em futebol. Os nomes de classes aceites estão em
-    ``ball_names`` / ``person_names``.
+    ``model`` may be a COCO pretrained model ("sports ball" class) or a
+    soccer-finetuned model. Accepted class names are configured by
+    ``ball_names`` and ``person_names``.
     """
 
     def __init__(
@@ -101,7 +103,7 @@ class YoloDetector:
                 from ultralytics import YOLO
             except ImportError as e:  # pragma: no cover
                 raise RuntimeError(
-                    "ultralytics não está instalado. Corre: pip install -r requirements.txt"
+                    "Ultralytics is not installed. Run: pip install -r requirements.txt"
                 ) from e
             model_obj = YOLO(model)
         self.model = model_obj
@@ -111,7 +113,7 @@ class YoloDetector:
         self.device = device
         self.tile_size = tile_size
         self.tile_overlap = tile_overlap
-        self.window_size = window_size  # janela quadrada à volta do hint; 0 = desligado
+        self.window_size = window_size  # Square search window around the hint; 0 disables it.
         self.ball_names = {n.lower() for n in ball_names}
         self.person_names = {n.lower() for n in person_names}
 
@@ -145,7 +147,7 @@ class YoloDetector:
         return out
 
     def _detect_window(self, frame: np.ndarray, hint: tuple[float, float], persons: bool) -> list[Detection]:
-        """Procura rápida: bola só numa janela à volta de ``hint``; jogadores só se pedido."""
+        """Fast search: look for the ball near ``hint`` and players only when requested."""
         h, w = frame.shape[:2]
         ww, wh = min(self.window_size, w), min(self.window_size, h)
         x0 = int(min(max(hint[0] - ww / 2, 0), w - ww))
@@ -169,7 +171,7 @@ class YoloDetector:
         if self.tile_size > 0:
             origins = _tile_origins(h, w, self.tile_size, self.tile_overlap)
             tile_balls: list[Detection] = []
-            for i in range(0, len(origins), 8):  # lotes de 8 tiles
+            for i in range(0, len(origins), 8):  # Process tiles in batches of eight.
                 chunk = origins[i : i + 8]
                 crops = [frame[y : y + self.tile_size, x : x + self.tile_size] for x, y in chunk]
                 results = self._predict(crops, self.ball_conf, self.tile_size)
@@ -180,16 +182,16 @@ class YoloDetector:
         return dets
 
 
-# --------------------------------------------------------------- Demo (cor)
+# --------------------------------------------------------------- Color demo
 class DemoColorDetector:
-    """Detetor por cor para o vídeo sintético (bola branca, jogadores vermelhos/azuis)."""
+    """Color detector for synthetic video (white ball, red/blue players)."""
 
     def detect(self, frame: np.ndarray, hint: tuple[float, float] | None = None,
                persons: bool = True) -> list[Detection]:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         dets: list[Detection] = []
 
-        # bola: quase branca e pequena
+        # Ball: small and nearly white.
         white = cv2.inRange(hsv, (0, 0, 240), (179, 30, 255))
         n, _, stats, _ = cv2.connectedComponentsWithStats(white, connectivity=8)
         for i in range(1, n):
@@ -198,7 +200,7 @@ class DemoColorDetector:
                 fill = area / float(w * h)
                 dets.append(Detection("ball", x, y, x + w, y + h, float(min(1.0, fill))))
 
-        # jogadores: vermelho (H<10 ou >170) ou azul (H 100-130), saturação alta
+        # Players: highly saturated red (H<10 or >170) or blue (H 100-130).
         red = cv2.inRange(hsv, (0, 150, 80), (10, 255, 255)) | cv2.inRange(hsv, (170, 150, 80), (179, 255, 255))
         blue = cv2.inRange(hsv, (100, 150, 80), (130, 255, 255))
         mask = red | blue

@@ -1,4 +1,4 @@
-"""Tracking da bola + câmara virtual (PTZ digital) com movimento suavizado."""
+"""Ball tracking and smoothly moving digital PTZ camera."""
 from __future__ import annotations
 
 import math
@@ -15,13 +15,13 @@ from .detectors import Detection
 @dataclass
 class BallState:
     pos: tuple[float, float] | None
-    vel: tuple[float, float]  # px/s
-    status: str  # "tracked" | "coasting" | "lost"
-    coast_time: float  # segundos desde a última deteção aceite
+    vel: tuple[float, float]  # Pixels per second.
+    status: str  # "tracked", "coasting", or "lost".
+    coast_time: float  # Seconds since the last accepted detection.
 
 
 class BallTracker:
-    """Associa deteções da bola ao longo do tempo e prevê quando se perde."""
+    """Associate ball detections over time and predict through short losses."""
 
     def __init__(self, frame_w: int, frame_h: int, cfg: TrackerConfig | None = None) -> None:
         self.W, self.H = frame_w, frame_h
@@ -66,7 +66,7 @@ class BallTracker:
                 inst = ((c[0] - self._last_det[0]) / self._coast, (c[1] - self._last_det[1]) / self._coast)
                 a = cfg.vel_alpha
                 self._vel = (a * inst[0] + (1 - a) * self._vel[0], a * inst[1] + (1 - a) * self._vel[1])
-                vmax = 3.0 * self.W  # px/s - descarta velocidades absurdas
+                vmax = 3.0 * self.W  # Pixels per second; cap implausible velocities.
                 speed = math.hypot(*self._vel)
                 if speed > vmax:
                     self._vel = (self._vel[0] * vmax / speed, self._vel[1] * vmax / speed)
@@ -86,7 +86,7 @@ class BallTracker:
 # ----------------------------------------------------------- Smoothing util
 def smooth_damp(current: float, target: float, vel: float, smooth_time: float,
                 max_speed: float, dt: float) -> tuple[float, float]:
-    """Mola criticamente amortecida com limite de velocidade (estilo SmoothDamp)."""
+    """Critically damped spring with a speed limit (SmoothDamp-style)."""
     smooth_time = max(1e-4, smooth_time)
     omega = 2.0 / smooth_time
     x = omega * dt
@@ -98,7 +98,7 @@ def smooth_damp(current: float, target: float, vel: float, smooth_time: float,
     temp = (vel + omega * change) * dt
     vel = (vel - omega * temp) * exp
     out = tmp_target + (change + temp) * exp
-    if (target - current > 0.0) == (out > target):  # evita overshoot
+    if (target - current > 0.0) == (out > target):  # Prevent overshoot.
         out = target
         vel = (out - target) / dt if dt > 0 else 0.0
     return out, vel
@@ -131,7 +131,7 @@ class VirtualCamera:
         self.cfg = cfg or FramingConfig()
         self.tcfg = tracker_cfg or TrackerConfig()
         self.W, self.H = frame_w, frame_h
-        self.aspect = self.cfg.out_height / self.cfg.out_width  # h / w
+        self.aspect = self.cfg.out_height / self.cfg.out_width  # Height / width.
         self.max_w = min(float(frame_w), frame_h / self.aspect)
         self.min_w = min(self.max_w, float(self.cfg.min_crop_px))
         self.w = self._cw(self.cfg.crop_width_wide * frame_w)
@@ -170,7 +170,7 @@ class VirtualCamera:
                 ty = bw * ty + (1 - bw) * centroid[1]
             k = min(1.0, ball.coast_time / max(self.tcfg.max_coast_s, 1e-3))
             tw = self._cw(w_ball + (w_wide - w_ball) * k)
-            # garante que a bola fica sempre dentro da zona central do enquadramento
+            # Keep the ball within the central region of the crop.
             lim = 0.30 * tw
             tx = bx + max(-lim, min(lim, tx - bx))
             ty = by + max(-lim * self.aspect, min(lim * self.aspect, ty - by))
@@ -196,7 +196,7 @@ class VirtualCamera:
 
 
 def render_crop(frame: np.ndarray, rect: CropRect, out_w: int, out_h: int) -> np.ndarray:
-    """Recorta+redimensiona com precisão sub-pixel (pan suave, sem saltos de 1px)."""
+    """Crop and resize at sub-pixel precision for smooth pans."""
     sx, sy = out_w / rect.w, out_h / rect.h
     m = np.array([[sx, 0, -rect.x0 * sx], [0, sy, -rect.y0 * sy]], dtype=np.float32)
     return cv2.warpAffine(frame, m, (out_w, out_h), flags=cv2.INTER_LINEAR,

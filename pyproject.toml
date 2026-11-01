@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "soccer-autocam"
 version = "0.1.0"
-description = "Câmara virtual (PTZ digital) que segue a bola em jogos de futebol e emite para o YouTube"
+description = "Digital PTZ camera that follows the ball in soccer matches and streams to YouTube"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26", "opencv-python>=4.9", "ultralytics>=8.3"]
 

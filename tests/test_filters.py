@@ -17,9 +17,9 @@ def person(x, foot_y):
 def test_parse_roi_ok_and_errors():
     assert parse_roi("0.1,0.2; 0.9,0.2;0.9,0.9") == [(0.1, 0.2), (0.9, 0.2), (0.9, 0.9)]
     with pytest.raises(ValueError):
-        parse_roi("0.1,0.2;0.9,0.2")  # só 2 pontos
+        parse_roi("0.1,0.2;0.9,0.2")  # Only two points.
     with pytest.raises(ValueError):
-        parse_roi("0.1,0.2;0.9,0.2;900,500")  # pixels em vez de frações
+        parse_roi("0.1,0.2;0.9,0.2;900,500")  # Pixels instead of normalized fractions.
 
 
 def test_roi_rejects_ball_outside_and_uses_feet_for_people():
@@ -28,7 +28,7 @@ def test_roi_rejects_ball_outside_and_uses_feet_for_people():
     keep, drop = roi.split([inside_ball, outside_ball])
     assert keep == [inside_ball] and drop == [outside_ball]
 
-    # a cabeça está dentro mas os pés estão fora -> rejeitada (ex: pessoa fora da linha)
+    # Head is inside but feet are outside: reject the player beyond the touchline.
     p_out = person(2000, 900)
     p_in = person(2000, 700)
     keep, drop = roi.split([p_in, p_out])
@@ -44,17 +44,17 @@ def test_static_filter_drops_ball_that_never_moves():
         if drop and dropped_at is None:
             dropped_at = i * dt
     assert dropped_at is not None and 2.9 <= dropped_at <= 3.2
-    assert not keep  # continua rejeitada
+    assert not keep  # Still rejected.
 
 
 def test_static_filter_keeps_moving_ball_and_ignores_static_one():
     f = StaticFilter(W, after_s=3.0)
     dt = 1 / 25
     for i in range(25 * 8):
-        moving = ball(500 + 10 * i % 3000, 400)  # move-se 10 px por frame
+        moving = ball(500 + 10 * i % 3000, 400)  # Moves 10 px per frame.
         keep, _ = f.split([moving, ball(1500, 900, conf=0.9)], i * dt)
-    assert any(abs(d.center[0] - 1500) > 100 for d in keep)  # a bola real passa
-    assert all(abs(d.center[0] - 1500) > 100 or abs(d.center[1] - 900) > 100 for d in keep)  # a parada não
+    assert any(abs(d.center[0] - 1500) > 100 for d in keep)  # The real ball passes through.
+    assert all(abs(d.center[0] - 1500) > 100 or abs(d.center[1] - 900) > 100 for d in keep)  # The stationary one does not.
 
 
 def test_static_filter_disabled():

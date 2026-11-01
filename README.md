@@ -1,126 +1,123 @@
-# soccer-autocam
+# Soccer AutoCam
 
-Câmara virtual (PTZ digital) que segue a bola num jogo de futebol e emite o resultado para um ficheiro ou para o YouTube (RTMP).
+Software PTZ for a fixed, wide-angle soccer camera. The pipeline detects the ball and players, tracks the ball, moves a virtual camera smoothly, crops to a 16:9 output, and writes an MP4 or streams to YouTube over RTMP.
 
-```
-fonte (ficheiro / RTSP / webcam)
-   -> detetor (YOLO: bola + jogadores)
-   -> tracker da bola (associação, previsão, "coasting" quando se perde)
-   -> câmara virtual (alvo = bola + centro dos jogadores, mola amortecida, zona morta, zoom)
-   -> crop 16:9 sub-pixel -> ffmpeg (H.264) -> mp4 ou rtmp://youtube
+```text
+video source -> detector -> ball tracker -> virtual camera -> crop/resize -> H.264 output
 ```
 
-Usa uma câmara fixa, grande angular e de alta resolução (4K+) e faz o "PTZ" por software: sem motores, sem latência mecânica. É a abordagem dos produtos comerciais.
+The intended input is a high, fixed camera that sees most or all of the pitch. This project is an early prototype: the tracking and framing pipeline has automated coverage, but the YOLO settings have not yet been validated against a representative set of real matches. Treat real-time and broadcast quality as goals to measure, not established capabilities.
 
-## Estado atual
+## Project status
 
-| Parte | Estado |
+| Area | Status |
 |---|---|
-| Tracker, câmara virtual, suavização, saída mp4/RTMP, CLI | Implementado e testado (`pytest`, vídeo sintético) |
-| `YoloDetector` (frame inteiro + tiles) | Implementado; lógica testada com modelo falso. **Ainda não validado com pesos reais nem em jogos reais** |
-| Fine-tuning para bola de futebol | Por fazer (ver abaixo) |
-| Duas câmaras (stitching) | Por fazer |
-| PTZ físico (ONVIF) | Fora de âmbito por agora |
+| Tracking, virtual camera, MP4/RTMP output, CLI | Implemented; covered by unit and synthetic end-to-end tests |
+| YOLO full-frame, tile and local-window inference | Implemented; tested with a fake model, not yet benchmarked on real match footage |
+| Match-footage evaluation set and quality metrics | Needed |
+| Fine-tuned soccer ball detector | Future work; requires dataset/license review |
+| Multi-camera stitching and physical PTZ | Out of current scope |
 
-O detetor `demo` (`--detector demo`) só funciona no vídeo sintético: serve para validar o resto do pipeline sem GPU.
+The `demo` detector is only for the generated synthetic video. It is not a soccer detector.
 
-## Requisitos
+## Requirements
 
-- Python 3.10+
-- ffmpeg (`sudo apt install ffmpeg` / `brew install ffmpeg`)
-- Para tempo real: GPU NVIDIA com CUDA. Sem GPU consegues processar ficheiros offline (mais lento que o tempo real).
+- Python 3.10 or newer
+- FFmpeg for H.264 MP4 output and RTMP streaming
+- PyTorch/Ultralytics supported device for YOLO inference (CUDA, Apple MPS, or CPU)
+- Fixed, high-resolution source recommended; higher input resolution helps preserve small ball detail
 
-## Instalação
+## Setup
 
 ```bash
-./scripts/setup.sh          # cria .venv, instala dependências, corre os testes
+./scripts/setup.sh
 source .venv/bin/activate
 ```
 
-Com GPU NVIDIA, instala primeiro o PyTorch com CUDA (ver comentário no `scripts/setup.sh`), senão o `pip` pode instalar a versão só CPU.
+For NVIDIA, install the matching CUDA build of PyTorch before installing the project dependencies; see the official [PyTorch installation selector](https://pytorch.org/get-started/locally/). Keep model weights and stream keys out of version control.
 
-## 1. Demo sem câmara nem YOLO
+## Synthetic demo
 
 ```bash
 ./scripts/demo.sh
 ```
 
-Gera um jogo sintético (2560x720, bola + 22 jogadores, com a bola a "desaparecer" 3 vezes) e produz:
+This creates a synthetic match, including brief ball occlusions, then writes:
 
-- `outputs/demo_out.mp4`: o vídeo final 1080p que iria para o YouTube
-- `outputs/demo_debug.mp4`: o vídeo original com overlay (verde = crop, amarelo = bola detetada, cruz vermelha = bola prevista, azul = jogadores)
+- `outputs/demo_out.mp4`: virtual-camera output
+- `outputs/demo_debug.mp4`: input view with the crop, detections and tracking state
 
-## 2. Com um vídeo real + YOLO
+This checks software wiring and framing behavior. It does not measure detector quality on real matches.
 
-Precisas de um vídeo de uma câmara fixa em posição alta que mostre o campo todo (não serve uma transmissão de TV, que muda de plano).
-
-```bash
-python -m autocam --source jogo.mp4 --output outputs/jogo_out.mp4 \
-  --debug-video outputs/jogo_debug.mp4 --device cuda:0
-```
-
-Os pesos `yolov8m.pt` (COCO, classe `sports ball`) são descarregados automaticamente na primeira execução. Isto é só uma baseline: a bola tem poucos pixels em 4K e o COCO falha muito. Para melhorar:
-
-1. **Tiles** para a bola: `--tile-size 1280` (corre o modelo em blocos sobrepostos; mais lento, apanha bolas pequenas).
-2. **Baixar o limiar**: `--ball-conf 0.05` (o tracker filtra falsos positivos pela continuidade).
-3. **Fine-tuning** num dataset de futebol com a bola anotada, depois `--model runs/detect/train/weights/best.pt`.
-   Os repositórios SoccerNet que encontraste são sobretudo para ações/eventos; procura datasets com caixas da bola (por exemplo SoccerNet-Tracking, SoccerTrack) e confirma anotações e licença antes de treinar.
-4. Quando a bola é perdida, a câmara segue o centro dos jogadores (fallback), por isso uma deteção medíocre ainda dá um resultado utilizável.
-
-Aceleração: `--detect-every 2` (ou 3) corre o detetor de N em N frames; o tracker prevê entre deteções.
-
-## 3. Câmara IP (RTSP)
+## Process a real video
 
 ```bash
-python -m autocam --source "rtsp://user:pass@192.168.1.50:554/stream1" --output outputs/live.mp4
+python -m autocam --source data/clip.mp4 --output outputs/clip_out.mp4 \
+  --debug-video outputs/clip_debug.mp4 --device mps \
+  --tile-size 1280 --ball-conf 0.05 --detect-every 2 --max-frames 300
 ```
 
-Em fontes live só se processa o frame mais recente (descarta frames se a inferência for lenta, em vez de acumular atraso). O transporte RTSP é forçado a TCP.
+The default `yolov8m.pt` uses the COCO `sports ball` class as a baseline. Small balls can be missed even at high source resolution. Tiles increase effective detail at additional compute cost. Lower confidence thresholds may recover missed balls but also add false positives; ROI filtering and temporal tracking can reject some of them.
 
-## 4. Emitir para o YouTube
-
-1. YouTube Studio -> Criar -> Fazer uma emissão em direto -> copia a **chave de stream**.
-2. Testa primeiro com um ficheiro, simulando tempo real:
+For a field polygon, select its boundary in a representative frame:
 
 ```bash
-python -m autocam --source jogo.mp4 --realtime --bitrate 6000k \
-  --output "rtmp://a.rtmp.youtube.com/live2/CHAVE"
+python scripts/pick_roi.py data/clip.mp4 --time 5
 ```
 
-O vídeo sai a H.264, GOP de 2 s e áudio AAC silencioso (o YouTube espera uma pista de áudio). Precisas de upload estável, pelo menos 8-10 Mbps para 1080p a 6 Mbps. Não metas a chave de stream no git.
+Pass the emitted `--roi` string to `python -m autocam`. The ROI coordinates are normalized to the full source frame. Review the debug video to confirm the polygon follows the playable area and that useful detections remain inside it.
 
-## Afinação
+## Camera and YouTube streaming
 
-Parâmetros em `autocam/config.py` (e alguns na CLI):
+RTSP input:
 
-| Parâmetro | Efeito |
+```bash
+python -m autocam --source "rtsp://user:password@192.168.1.50:554/stream1" \
+  --output outputs/live.mp4 --debug-video outputs/live_debug.mp4
+```
+
+YouTube RTMP output (use a stream key from YouTube Studio; do not commit it):
+
+```bash
+python -m autocam --source "rtsp://camera/stream" \
+  --output "rtmp://a.rtmp.youtube.com/live2/STREAM_KEY" --bitrate 6000k
+```
+
+For a file-based streaming rehearsal, add `--realtime`. The output is H.264 with a two-second GOP and silent AAC audio. Check upload capacity and the stream dashboard before a match.
+
+## Useful tuning options
+
+| Option | Purpose |
 |---|---|
-| `smooth_time_pan` (`--smooth-pan`) | Mais alto = movimento mais suave/lento |
-| `max_pan_speed` | Limite de velocidade da câmara |
-| `dead_zone` | Evita micro-movimentos |
-| `crop_width_ball` / `crop_width_wide` | Zoom com a bola localizada / perdida |
-| `ball_weight` | Quanto a câmara favorece a bola vs. o grupo de jogadores |
-| `lead_seconds` | Antecipa para onde a bola vai |
-| `TrackerConfig.max_coast_s` | Quanto tempo prevê a bola sem a ver |
+| `--tile-size` | Run ball inference over overlapping image tiles |
+| `--window-size` | Search near the predicted ball location while tracking |
+| `--full-search-every` | Periodic full search while the ball is tracked |
+| `--detect-every` | Run detection once every N source frames |
+| `--ball-conf` | Ball confidence threshold |
+| `--roi` | Ignore detections outside the pitch polygon |
+| `--static-after` | Reject stationary ball-like detections after a time interval |
+| `--crop-ball`, `--crop-wide` | Crop width when the ball is tracked or unavailable |
+| `--smooth-pan` | Camera pan response time |
+| `--debug-video` | Write a diagnostic overlay video |
 
-## Estrutura
+See `python -m autocam --help` for all options. Core defaults are in `autocam/config.py`.
 
+## Repository layout
+
+```text
+autocam/       detector, filters, tracking, framing, I/O and pipeline
+scripts/       setup, demo and ROI selection helpers
+tests/         unit and synthetic end-to-end tests
+data/          local test footage (not necessarily tracked by Git)
+outputs/       generated videos and diagnostics
 ```
-autocam/
-  config.py     parâmetros
-  detectors.py  YoloDetector (+ tiles), DemoColorDetector
-  framing.py    BallTracker, VirtualCamera, render_crop
-  io.py         VideoSource (ficheiro/RTSP/webcam), FfmpegSink (mp4/RTMP)
-  pipeline.py   loop principal
-  synthetic.py  gerador do jogo sintético
-  __main__.py   CLI
-tests/          pytest (tracker, câmara, detetor com modelo falso, end-to-end)
-scripts/        setup.sh, demo.sh
-```
 
-## Próximos passos sugeridos
+## Development plan
 
-1. Correr com um vídeo real de câmara fixa e olhar para o `--debug-video` para ver onde o detetor falha.
-2. Fine-tuning do YOLO para a bola; exportar para TensorRT/ONNX para chegar a 25-30 fps.
-3. Duas câmaras lado a lado: calibrar/colar (stitching) num panorama antes do detetor.
-4. Estabilidade em direto: reconexão RTSP/RTMP, métricas de latência.
+The work should proceed in evidence-driven stages. See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the detailed workflow and handoff notes.
+
+1. Establish repeatable baselines on the supplied clip and a longer representative match.
+2. Measure ball detection and framing quality, not just processing FPS.
+3. Fix detector/tracker failure modes against annotated failure examples.
+4. Benchmark target hardware and only then choose model/export optimizations.
+5. Validate RTSP recovery, end-to-end latency and an unlisted YouTube stream before a public match.

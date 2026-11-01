@@ -1,4 +1,4 @@
-"""Entrada (ficheiro / RTSP / webcam) e saída (mp4 / RTMP YouTube)."""
+"""Video input (file / RTSP / webcam) and output (MP4 / YouTube RTMP)."""
 from __future__ import annotations
 
 import os
@@ -15,11 +15,11 @@ LIVE_PREFIXES = ("rtsp://", "rtmp://", "http://", "https://", "udp://")
 
 
 class VideoSource:
-    """Lê frames de ficheiro, stream (RTSP/HTTP) ou webcam.
+    """Read frames from a file, stream (RTSP/HTTP), or webcam.
 
-    Em fontes "live" corre uma thread que guarda só o frame mais recente: se a
-    inferência for mais lenta que o stream, descartam-se frames em vez de acumular
-    latência.
+    Live sources use a reader thread that retains only the newest frame. If
+    inference is slower than the stream, frames are dropped instead of latency
+    accumulating.
     """
 
     def __init__(self, source: str) -> None:
@@ -28,7 +28,7 @@ class VideoSource:
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
         self.cap = cv2.VideoCapture(int(source) if source.isdigit() else source)
         if not self.cap.isOpened():
-            raise RuntimeError(f"Não consegui abrir a fonte de vídeo: {source}")
+            raise RuntimeError(f"Could not open video source: {source}")
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = self.cap.get(cv2.CAP_PROP_FPS)
@@ -61,7 +61,7 @@ class VideoSource:
             while self._latest is None and not self._eof:
                 self._cond.wait(timeout=5.0)
                 if self._latest is None and not self._eof:
-                    return None  # sem frames durante 5s
+                    return None  # No frames arrived for five seconds.
             frame, self._latest = self._latest, None
             return frame
 
@@ -78,7 +78,7 @@ class Sink(Protocol):
 
 
 class FfmpegSink:
-    """Envia frames BGR para o ffmpeg (H.264) -> ficheiro mp4 ou RTMP (YouTube)."""
+    """Send BGR frames to FFmpeg (H.264) -> MP4 file or YouTube RTMP."""
 
     def __init__(self, dest: str, width: int, height: int, fps: float,
                  bitrate: str | None = None, preset: str = "veryfast") -> None:
@@ -108,7 +108,7 @@ class FfmpegSink:
         try:
             self.proc.stdin.write(np.ascontiguousarray(frame).tobytes())
         except (BrokenPipeError, OSError) as e:
-            raise RuntimeError(f"ffmpeg terminou inesperadamente: {self._stderr()}") from e
+            raise RuntimeError(f"FFmpeg exited unexpectedly: {self._stderr()}") from e
 
     def _stderr(self) -> str:
         self._err.seek(0)
@@ -121,17 +121,17 @@ class FfmpegSink:
             pass
         self.proc.wait()
         if self.proc.returncode not in (0, None):
-            raise RuntimeError(f"ffmpeg falhou (código {self.proc.returncode}): {self._stderr()}")
+            raise RuntimeError(f"FFmpeg failed (exit code {self.proc.returncode}): {self._stderr()}")
         self._err.close()
 
 
 class OpenCvSink:
-    """Fallback sem ffmpeg (só ficheiros)."""
+    """Fallback without FFmpeg (files only)."""
 
     def __init__(self, dest: str, width: int, height: int, fps: float) -> None:
         self.writer = cv2.VideoWriter(dest, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
         if not self.writer.isOpened():
-            raise RuntimeError(f"Não consegui criar o ficheiro de saída: {dest}")
+            raise RuntimeError(f"Could not create output file: {dest}")
 
     def write(self, frame: np.ndarray) -> None:
         self.writer.write(frame)
@@ -146,5 +146,5 @@ def make_sink(dest: str, width: int, height: int, fps: float,
     if shutil.which("ffmpeg"):
         return FfmpegSink(dest, width, height, fps, bitrate, preset)
     if is_rtmp:
-        raise RuntimeError("ffmpeg não encontrado: é necessário para enviar para RTMP/YouTube.")
+        raise RuntimeError("FFmpeg not found: it is required for RTMP/YouTube output.")
     return OpenCvSink(dest, width, height, fps)

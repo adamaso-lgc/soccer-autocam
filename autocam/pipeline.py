@@ -1,4 +1,4 @@
-"""Loop principal: fonte -> deteção -> tracking -> câmara virtual -> saída."""
+"""Main source -> detection -> tracking -> virtual camera -> output loop."""
 from __future__ import annotations
 
 import time
@@ -19,16 +19,16 @@ from .io import VideoSource, make_sink
 class RunResult:
     frames: int = 0
     seconds: float = 0.0
-    detect_ms: float = 0.0  # média por chamada ao detetor
+    detect_ms: float = 0.0  # Average time per detector call.
     status_counts: dict = field(default_factory=dict)
-    log: list = field(default_factory=list)  # por frame (se collect=True)
-    # diagnóstico (contagens por deteção, não por frame)
-    window_calls: int = 0  # deteções com procura rápida em janela
-    full_calls: int = 0  # deteções com procura completa
-    ball_raw: int = 0  # deteções de bola devolvidas pelo modelo
-    ball_roi_rejected: int = 0  # ... descartadas por estarem fora do ROI
-    ball_static_rejected: int = 0  # ... descartadas por estarem paradas
-    detect_no_ball: int = 0  # deteções sem nenhuma bola aceite
+    log: list = field(default_factory=list)  # Per-frame log when collect=True.
+    # Diagnostic counters (counts per detector call, not per frame).
+    window_calls: int = 0  # Fast local-window searches.
+    full_calls: int = 0  # Full-frame searches.
+    ball_raw: int = 0  # Raw ball detections returned by the model.
+    ball_roi_rejected: int = 0  # Ball detections rejected outside the ROI.
+    ball_static_rejected: int = 0  # Ball detections rejected as stationary.
+    detect_no_ball: int = 0  # Calls with no accepted ball detection.
 
     @property
     def fps(self) -> float:
@@ -37,14 +37,14 @@ class RunResult:
 
 def _draw_debug(frame, size, persons, balls, ball_pos, rect: CropRect, status: str,
                 roi_poly=None, rejected=()):
-    """Desenha o overlay num frame redimensionado EXATAMENTE para ``size`` = (largura, altura)."""
+    """Draw the overlay on a frame resized exactly to ``size`` = (width, height)."""
     dw, dh = size
     sx, sy = dw / frame.shape[1], dh / frame.shape[0]
     img = cv2.resize(frame, (dw, dh), interpolation=cv2.INTER_AREA)
     if roi_poly is not None:
         pts = (roi_poly * np.array([sx, sy], dtype=np.float32)).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(img, [pts], True, (255, 0, 255), 1)
-    for d in rejected:  # deteções descartadas pelos filtros: círculo vermelho pequeno
+    for d in rejected:  # Filtered detections are shown as small red circles.
         cx, cy = d.center
         cv2.circle(img, (int(cx * sx), int(cy * sy)), 5, (0, 0, 255), 1)
     for d in persons:
@@ -68,7 +68,7 @@ def run(cfg: PipelineConfig, detector: Detector, collect: bool = False) -> RunRe
     W, H = src.width, src.height
     if W <= 0 or H <= 0:
         src.close()
-        raise RuntimeError("Não consegui obter a resolução da fonte.")
+        raise RuntimeError("Could not determine the source resolution.")
 
     tracker = BallTracker(W, H, cfg.tracker)
     camera = VirtualCamera(W, H, fc, cfg.tracker)
@@ -78,7 +78,7 @@ def run(cfg: PipelineConfig, detector: Detector, collect: bool = False) -> RunRe
     dbg_size = (0, 0)
     if cfg.debug_video:
         k = min(1.0, 1280 / W)
-        dbg_size = (max(2, int(W * k) // 2 * 2), max(2, int(H * k) // 2 * 2))  # H.264 exige pares
+        dbg_size = (max(2, int(W * k) // 2 * 2), max(2, int(H * k) // 2 * 2))  # H.264 requires even dimensions.
         dbg = make_sink(cfg.debug_video, dbg_size[0], dbg_size[1], fps)
 
     roi = RoiFilter(cfg.roi, W, H) if cfg.roi else None
@@ -105,7 +105,7 @@ def run(cfg: PipelineConfig, detector: Detector, collect: bool = False) -> RunRe
 
             detected = idx % max(1, cfg.detect_every) == 0
             if detected:
-                # Bola seguida -> procura rápida numa janela; de vez em quando (ou se perdida) procura completa.
+                # Search near the tracked ball; periodically perform a full search.
                 hint = None
                 if (last_ball is not None and last_ball.status == "tracked" and last_ball.pos is not None
                         and det_calls % full_every != 0):
@@ -130,7 +130,7 @@ def run(cfg: PipelineConfig, detector: Detector, collect: bool = False) -> RunRe
                     rejected += still
                     result.ball_static_rejected += len(still)
                 result.detect_no_ball += not balls
-                if want_persons:  # senão mantém os jogadores da última deteção
+                if want_persons:  # Otherwise retain players from the last refresh.
                     persons = [d for d in dets if d.label == "person"]
                     players = np.array([d.foot for d in persons], dtype=np.float32) if persons else None
 
@@ -154,7 +154,7 @@ def run(cfg: PipelineConfig, detector: Detector, collect: bool = False) -> RunRe
                 if delay > 0:
                     time.sleep(delay)
                 else:
-                    next_t = time.perf_counter()  # atrasado: não acumular dívida
+                    next_t = time.perf_counter()  # Do not accumulate delay debt.
     finally:
         src.close()
         sink.close()

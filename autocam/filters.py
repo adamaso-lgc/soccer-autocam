@@ -1,9 +1,8 @@
-"""Filtros de falsos positivos aplicados às deteções antes do tracker.
+"""False-positive filters applied to detections before tracking.
 
-* ``RoiFilter``    - só aceita deteções dentro do polígono do campo (descarta bolas
-                     suplentes, marcas no relvado, público, banco...).
-* ``StaticFilter`` - descarta "bolas" que ficam no mesmo sítio durante vários
-                     segundos (bolas paradas fora de jogo, logótipos, sinais).
+* ``RoiFilter`` - accepts detections inside the pitch polygon only.
+* ``StaticFilter`` - rejects ball-like detections that remain in one place for
+  several seconds (spare balls, logos, signs, etc.).
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ from .detectors import Detection
 
 
 def parse_roi(text: str) -> list[tuple[float, float]]:
-    """'0.02,0.20;0.98,0.20;0.99,0.95;0.01,0.95' -> [(x, y), ...] em frações (0-1) do frame."""
+    """Parse normalized frame coordinates: '0.02,0.2;0.98,0.2;0.99,0.95'."""
     pts = []
     for part in text.replace(" ", "").split(";"):
         if not part:
@@ -24,9 +23,9 @@ def parse_roi(text: str) -> list[tuple[float, float]]:
         x, y = part.split(",")
         pts.append((float(x), float(y)))
     if len(pts) < 3:
-        raise ValueError("O ROI precisa de pelo menos 3 pontos (formato: 'x,y;x,y;x,y' em frações 0-1).")
+        raise ValueError("ROI needs at least 3 points (format: 'x,y;x,y;x,y' in normalized 0-1 coordinates).")
     if any(not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0) for x, y in pts):
-        raise ValueError("Os pontos do ROI têm de ser frações entre 0 e 1 (ex: 0.25,0.5).")
+        raise ValueError("ROI points must be fractions between 0 and 1 (for example, 0.25,0.5).")
     return pts
 
 
@@ -38,7 +37,7 @@ class RoiFilter:
         return cv2.pointPolygonTest(self.poly.reshape(-1, 1, 2), (float(x), float(y)), False) >= 0
 
     def split(self, dets: list[Detection]) -> tuple[list[Detection], list[Detection]]:
-        """(aceites, rejeitadas). Bola: centro dentro. Pessoa: pés (base da caixa) dentro."""
+        """Return (accepted, rejected): ball center or person foot must be inside."""
         keep, drop = [], []
         for d in dets:
             x, y = d.center if d.label == "ball" else d.foot
@@ -47,10 +46,10 @@ class RoiFilter:
 
 
 class StaticFilter:
-    """Rejeita bolas que ficam (quase) paradas durante ``after_s`` segundos.
+    """Reject detections that remain (nearly) still for ``after_s`` seconds.
 
-    Uma bola de jogo que fique parada mais tempo que isso (ex: antes de um livre) deixa de
-    ser aceite até se voltar a mexer; o tracker segue os jogadores entretanto.
+    A real ball that stays still longer than this (for example, before a free
+    kick) is ignored until it moves again; the tracker follows players meanwhile.
     """
 
     def __init__(self, width: int, after_s: float = 3.0, radius_frac: float = 0.006,
@@ -58,7 +57,7 @@ class StaticFilter:
         self.after_s = after_s
         self.radius = radius_frac * width
         self.forget_s = forget_s
-        self._anchors: list[list[float]] = []  # [x, y, t_primeira, t_ultima]
+        self._anchors: list[list[float]] = []  # [x, y, first_seen, last_seen]
 
     def split(self, balls: list[Detection], t: float) -> tuple[list[Detection], list[Detection]]:
         if self.after_s <= 0:

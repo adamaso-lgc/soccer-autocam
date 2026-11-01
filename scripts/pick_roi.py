@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Ajuda a definir o polígono do campo (--roi).
+"""Help select the pitch polygon (--roi).
 
 Modo clique (abre uma janela):
     python scripts/pick_roi.py data/clip.mp4 --time 5
-    Clica nos cantos do campo (linhas laterais e de fundo, em volta da zona de jogo).
-    u = desfazer último ponto | Enter = terminar e imprimir | q/Esc = cancelar
+    Click the pitch corners (touchlines and goal lines, around the playing area).
+    u = undo last point | Enter = finish and print | q/Esc = cancel
 
-Modo grelha (sem janela; grava uma imagem com coordenadas para leres à mão):
+    Grid mode (no window; save an image with coordinates for manual reading):
     python scripts/pick_roi.py data/clip.mp4 --time 5 --grid outputs/grid.png
 """
 from __future__ import annotations
@@ -21,19 +21,19 @@ import numpy as np
 def grab(path: str, t: float) -> np.ndarray:
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
-        sys.exit(f"Não consegui abrir {path}")
+        sys.exit(f"Could not open {path}")
     cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
     ok, frame = cap.read()
     cap.release()
     if not ok:
-        sys.exit("Não consegui ler um frame nesse instante.")
+        sys.exit("Could not read a frame at that time.")
     return frame
 
 
 def save_grid(frame: np.ndarray, out: str) -> None:
     h, w = frame.shape[:2]
     img = frame.copy()
-    for i in range(1, 20):  # linhas a cada 0.05
+    for i in range(1, 20):  # Grid lines every 0.05.
         f = i / 20
         major = i % 2 == 0
         col = (0, 255, 255) if major else (180, 180, 180)
@@ -43,7 +43,7 @@ def save_grid(frame: np.ndarray, out: str) -> None:
             cv2.putText(img, f"{f:.1f}", (int(f * w) + 3, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
             cv2.putText(img, f"{f:.1f}", (3, int(f * h) - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
     cv2.imwrite(out, img)
-    print(f"Grelha gravada em {out}. Lê as frações (x,y) dos cantos do campo e monta:")
+    print(f"Grid saved to {out}. Read the normalized (x,y) pitch corners and use:")
     print("  --roi 'x1,y1;x2,y2;x3,y3;x4,y4'")
 
 
@@ -78,7 +78,7 @@ def pick(frame: np.ndarray) -> list[tuple[float, float]]:
             redraw()
         if k in (27, ord("q")):
             cv2.destroyAllWindows()
-            sys.exit("Cancelado.")
+            sys.exit("Cancelled.")
     cv2.destroyAllWindows()
     vw, vh = view.shape[1], view.shape[0]
     return [(x / vw, y / vh) for x, y in pts]
@@ -87,8 +87,8 @@ def pick(frame: np.ndarray) -> list[tuple[float, float]]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
-    ap.add_argument("--time", type=float, default=5.0, help="segundo do vídeo a usar")
-    ap.add_argument("--grid", default=None, help="em vez de janela, grava uma imagem com grelha")
+    ap.add_argument("--time", type=float, default=5.0, help="Video timestamp to use, in seconds")
+    ap.add_argument("--grid", default=None, help="Save a grid image instead of opening a window")
     a = ap.parse_args()
     frame = grab(a.video, a.time)
     if a.grid:
@@ -96,10 +96,10 @@ def main() -> None:
         return
     pts = pick(frame)
     if len(pts) < 3:
-        sys.exit("Precisas de pelo menos 3 pontos.")
-    s = ";".join(f"{x:.3f},{y:.3f}" for x, y in pts)
-    print("\nUsa isto no autocam:\n")
-    print(f'  --roi "{s}"')
+        sys.exit("At least 3 points are required.")
+    roi = ";".join(f"{x:.3f},{y:.3f}" for x, y in pts)
+    print("\nUse this with autocam:\n")
+    print(f'  --roi "{roi}"')
 
 
 if __name__ == "__main__":
