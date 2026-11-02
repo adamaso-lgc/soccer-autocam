@@ -40,10 +40,13 @@ class PipelineConfig:
     dest: str = "output.mp4"  # MP4 path or rtmp://... URL.
     fps: float | None = None  # None uses the source FPS.
     bitrate: str | None = None  # Example: "6000k"; RTMP defaults to 6000k.
+    audio_source: str | None = None  # Optional audio-bearing file or stream passed to FFmpeg.
     preset: str = "veryfast"
     detect_every: int = 1  # Run detection once every N frames.
     max_frames: int | None = None
     realtime: bool = False  # Limit processing to source FPS for file-based stream tests.
+    reconnect_attempts: int = 5  # Retry live source connections before failing.
+    reconnect_delay_s: float = 1.0  # Delay between live source reconnect attempts.
     debug_video: str | None = None  # Diagnostic video with detections and crop overlay.
     roi: list[tuple[float, float]] | None = None  # Pitch polygon in normalized frame coordinates.
     static_after_s: float = 3.0  # Reject stationary ball-like detections after N seconds; 0 disables.

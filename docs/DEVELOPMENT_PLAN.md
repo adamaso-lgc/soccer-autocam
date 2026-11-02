@@ -13,6 +13,10 @@ Build a reliable soccer auto-camera for a fixed, high-resolution camera. The sof
 - Test assets mentioned by the project owner: `data/clip.mp4` and a longer source video under `data/`
 - Existing check: 22 tests passed with `pytest -q` before this handoff
 - Latest recorded sample run: 300 frames at 7.0 FPS on Apple MPS; 150 detector calls, 468 raw ball detections, 343 rejected outside the ROI, 53 calls with no accepted ball. The figures describe one run and do not establish accuracy.
+- Current environment: the installed PyTorch reports no MPS or CUDA device. A 60-frame CPU run took 15.5 seconds (3.9 processed FPS; 437 ms average detection), with 69 raw ball detections, 29 outside the ROI and one detector call with no accepted ball. The MP4 was valid H.264 at 1920x1080/25 FPS; this is offline throughput, not live suitability.
+- Paced YOLO replay of the 90-second clip on the same CPU ended after 90.5 seconds with 56 frames processed (0.6 processing FPS; 3,159 ms average detection), 46 frames in `lost` state, and 2,150 output frames at 24.9 FPS. The output cadence worked, but tracking quality/refresh rate failed the proposed live gate.
+- Live/output handling now retries a disconnected source a bounded number of times and repeats the newest crop at the configured output cadence. This preserves output timing but does not increase the camera update rate.
+- The longer source contains AAC audio. RTMP output remains silent unless `--audio-source` is supplied; explicit audio muxing and synchronization still need testing.
 
 The sample run used a hand-selected ROI. Its geometry, detector output and final crop must be inspected together before tuning thresholds. In particular, many raw detections outside the ROI may be expected, or may indicate that a class/model setting is too permissive.
 
@@ -60,7 +64,8 @@ The sample run used a hand-selected ROI. Its geometry, detector output and final
 - Profile inference, crop rendering and FFmpeg separately on the intended machine.
 - Decide the acceptable source/output resolution, frame rate and bitrate from hardware and network measurements.
 - Exercise RTSP disconnect/reconnect, stalled input, FFmpeg failure, graceful shutdown, and stream-key handling.
-- Measure capture-to-output latency under sustained load; ensure buffering does not grow without bound.
+- Measure capture-to-output latency and camera update rate under sustained load; verify repeated frames do not create unacceptable stalls.
+- Test audio muxing and sync with the actual camera or mixer. Default RTMP audio is silent.
 - Run an unlisted live test and review both the received stream and local diagnostics.
 
 **Exit condition:** a documented hardware profile sustains the target stream and recovers from expected failures.
@@ -87,4 +92,4 @@ Before handing work back:
 
 ## Suggested next task
 
-Create a local benchmark report for the owner-provided short clip and source video: capture metadata, exact CLI/configuration, detector counters, and a frame/timestamp review of the debug output. Use that report to select a single high-impact failure mode before changing model or tracker behavior.
+The next release gate is deployment validation: select the target computer and camera, measure the camera update rate on the full panorama, and verify audio/video sync with an unlisted stream. The current CPU environment is far below the 25 FPS input rate and cannot qualify as the live deployment host.

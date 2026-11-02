@@ -20,6 +20,8 @@ The intended input is a high, fixed camera that sees most or all of the pitch. T
 
 The `demo` detector is only for the generated synthetic video. It is not a soccer detector.
 
+Live and `--realtime` inputs use a bounded latest-frame buffer and fixed-rate output. If inference is slower than the requested output FPS, the last crop is repeated. This preserves stream timing but cannot make slow inference look smooth; the deployment computer must process new frames quickly enough for acceptable camera movement.
+
 ## Requirements
 
 - Python 3.10 or newer
@@ -80,10 +82,15 @@ YouTube RTMP output (use a stream key from YouTube Studio; do not commit it):
 
 ```bash
 python -m autocam --source "rtsp://camera/stream" \
-  --output "rtmp://a.rtmp.youtube.com/live2/STREAM_KEY" --bitrate 6000k
+  --output "rtmp://a.rtmp.youtube.com/live2/STREAM_KEY" --bitrate 6000k \
+  --audio-source "rtsp://camera/audio-stream"
 ```
 
-For a file-based streaming rehearsal, add `--realtime`. The output is H.264 with a two-second GOP and silent AAC audio. Check upload capacity and the stream dashboard before a match.
+For a file-based streaming rehearsal, add `--realtime`; slower inference drops old input frames to keep the output timeline aligned with file playback time. Without `--audio-source`, RTMP output contains silent AAC audio. Pass an audio-bearing file or stream to `--audio-source` to include AAC audio. This opens a separate audio connection, so check that the camera/server permits it and verify audio/video sync during rehearsal. Check upload capacity and the stream dashboard before a match.
+
+Live sources are retried up to five times by default, with a one-second delay. Change this with `--reconnect-attempts` and `--reconnect-delay`. If the stream cannot be reopened, the process exits with an error instead of quietly producing a truncated program feed. A resolution change after reconnect requires restarting the process.
+
+The CLI reports processing FPS separately from output FPS. A live run can maintain a 25 FPS encoded feed by repeating frames while inference is slower, but the camera view will only update at the measured processing rate. Confirm both numbers on the actual deployment computer before streaming a match.
 
 ## Useful tuning options
 
@@ -99,6 +106,8 @@ For a file-based streaming rehearsal, add `--realtime`. The output is H.264 with
 | `--crop-ball`, `--crop-wide` | Crop width when the ball is tracked or unavailable |
 | `--smooth-pan` | Camera pan response time |
 | `--debug-video` | Write a diagnostic overlay video |
+| `--audio-source` | Optional audio input for FFmpeg muxing |
+| `--reconnect-attempts` | Bounded retry count for live source recovery |
 
 See `python -m autocam --help` for all options. Core defaults are in `autocam/config.py`.
 
@@ -114,7 +123,7 @@ outputs/       generated videos and diagnostics
 
 ## Development plan
 
-The work should proceed in evidence-driven stages. See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the detailed workflow and handoff notes.
+The work should proceed in evidence-driven stages. See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the detailed workflow and [docs/DEPLOYMENT_CHECKLIST.md](docs/DEPLOYMENT_CHECKLIST.md) for the release gate before live use.
 
 1. Establish repeatable baselines on the supplied clip and a longer representative match.
 2. Measure ball detection and framing quality, not just processing FPS.
